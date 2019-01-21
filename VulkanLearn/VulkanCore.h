@@ -21,8 +21,9 @@ private:
 	bool m_PhysicsDevicesIninted;
 	std::set<uint32_t> m_UsedQueueId;
 	VkSurfaceKHR m_Surface;
+	VkSwapchainKHR m_SwapChain;
+	uint32_t m_UsedPhysicalDevice;
 	
-
 #pragma region Platformœ‡πÿ
 	HWND m_hWnd;
 	HINSTANCE m_hInstance;
@@ -47,6 +48,8 @@ private:
 	void InitDevice(uint32_t whichPhysicalDevice);
 	void CreateAppWindow();
 	void CreateSurfaceKHR();
+	void Resize(int w, int h);
+
 
 	VulkanCore();
 	VulkanCore(const VulkanCore&) = delete;

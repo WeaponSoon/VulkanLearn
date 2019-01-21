@@ -6,7 +6,7 @@
 VulkanCore* VulkanCore::core = nullptr;
 std::mutex VulkanCore::lock;
 VulkanCore::VulkanCore() : m_PhysicsDevicesIninted(false), m_Instance(VK_NULL_HANDLE), m_Device(VK_NULL_HANDLE), m_UsedQueueId(),m_Surface(VK_NULL_HANDLE),
-	m_hWnd(0), m_hInstance(0)
+	m_hWnd(0), m_hInstance(0), m_SwapChain(VK_NULL_HANDLE), m_UsedPhysicalDevice(0xffffffff)
 {
 	InitDevice(0);
 }
@@ -145,6 +145,7 @@ bool VulkanCore::ShowWindow()
 	if (m_WindObj == nullptr)
 		return false;
 	m_WindObj->Show(SW_SHOW);
+	Resize(0, 0);
 	return true;
 }
 
@@ -196,6 +197,7 @@ void VulkanCore::InitDevice(uint32_t index)
 {
 	InitPhysicsDevices();
 	CreateSurfaceKHR();
+	m_UsedPhysicalDevice = index;
 	if (m_Device == VK_NULL_HANDLE)
 	{
 		m_UsedQueueId.clear();
@@ -312,4 +314,47 @@ void VulkanCore::CreateSurfaceKHR()
 	
 }
 
+void VulkanCore::Resize(int w, int h)
+{
+	if (m_UsedPhysicalDevice == 0xffffffff)
+		return;
+	VkSurfaceCapabilitiesKHR extends;
+	vkGetPhysicalDeviceSurfaceCapabilitiesKHR(m_PhysicsDevices[m_UsedPhysicalDevice], m_Surface, &extends);
+
+	NEW_ST(VkSwapchainCreateInfoKHR, createInfo);
+	createInfo.clipped = VK_TRUE;
+	createInfo.compositeAlpha = VkCompositeAlphaFlagBitsKHR::VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+	createInfo.flags = 0;
+	createInfo.imageArrayLayers = 1;
+	createInfo.imageColorSpace = VkColorSpaceKHR::VK_COLORSPACE_SRGB_NONLINEAR_KHR;
+	createInfo.imageExtent = extends.currentExtent;
+	createInfo.imageFormat = VkFormat::VK_FORMAT_B8G8R8A8_UNORM;
+	createInfo.imageSharingMode = m_UsedQueueId.size() > 1 ? VkSharingMode::VK_SHARING_MODE_CONCURRENT : VkSharingMode::VK_SHARING_MODE_EXCLUSIVE;
+	createInfo.imageUsage = VkImageUsageFlagBits::VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+	createInfo.minImageCount = 2;
+	createInfo.oldSwapchain = m_SwapChain;
+	createInfo.pNext = 0;
+	std::vector<uint32_t> datas;
+	for (auto& i : m_UsedQueueId)
+	{
+		datas.push_back(i);
+	}
+	createInfo.pQueueFamilyIndices = datas.data();
+	createInfo.presentMode = VkPresentModeKHR::VK_PRESENT_MODE_FIFO_KHR;
+	createInfo.preTransform = extends.currentTransform;
+	createInfo.queueFamilyIndexCount = datas.size();
+	createInfo.sType = VkStructureType::VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
+	createInfo.surface = m_Surface;
+
+	auto res = vkCreateSwapchainKHR(m_Device, &createInfo, nullptr, &m_SwapChain);
+	if (res == VkResult::VK_SUCCESS)
+	{
+		vkGetDeviceQueue(m_Device, 0, 0, &m_Queue);
+		std::cout << "Success Create SwapChine" << std::endl;
+	}
+	else
+	{
+		std::cout << "Failed Create SwapChine, ErrorCode " << res << std::endl;
+	}
+}
 #pragma endregion
