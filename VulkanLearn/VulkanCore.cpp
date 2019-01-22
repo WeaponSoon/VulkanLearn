@@ -231,7 +231,7 @@ void VulkanCore::InitDevice(uint32_t index)
 				vkGetPhysicalDeviceSurfaceSupportKHR(phyDev, index, m_Surface, &sur);
 				if (sur == VK_TRUE)
 				{
-					m_UsedQueueId.insert(sur);
+					m_UsedQueueId.insert(index);
 					std::cout << "Surface Support At Queue Index " << index << std::endl;
 					break;
 				}
