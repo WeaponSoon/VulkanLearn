@@ -9,6 +9,9 @@ VulkanCore::VulkanCore() : m_PhysicsDevicesIninted(false), m_Instance(VK_NULL_HA
 	m_hWnd(0), m_hInstance(0), m_SwapChain(VK_NULL_HANDLE), m_UsedPhysicalDevice(0xffffffff)
 {
 	InitDevice(0);
+	CreateCommandBuffersForSwapChain();
+	InitSyncSemaphore();
+	InitSyncFence();
 }
 
 void VulkanCore::InitInstance()
@@ -149,6 +152,76 @@ bool VulkanCore::ShowWindow()
 	return true;
 }
 
+void VulkanCore::DrawFrame()
+{
+	m_TempProxyCommandBuffer.clear();
+	
+	
+	uint32_t imageIndex = 0;
+	vkAcquireNextImageKHR(m_Device, m_SwapChain, 0xffffffff, m_PresentSemaphores[m_CurrentFrameIndex], VK_NULL_HANDLE, &imageIndex);
+
+	
+	for (int i = 0; i < m_RenderProxys.size(); ++i)
+	{
+		if (m_RenderProxys[i]->GetCommandBuffer() != VK_NULL_HANDLE)
+		{
+			auto&& commandQueue = m_RenderProxys[i]->GetCommandBuffer();
+			m_TempProxyCommandBuffer.push_back(commandQueue);
+			m_RenderProxys[i]->BeginRender();
+			m_RenderProxys[i]->Render();
+			m_RenderProxys[i]->EndRender();
+		}
+	}
+	
+	NEW_ST(VkSubmitInfo, submitInfo);
+	submitInfo.commandBufferCount = m_TempProxyCommandBuffer.size();
+	submitInfo.pCommandBuffers = m_TempProxyCommandBuffer.data();
+	submitInfo.pNext = nullptr;
+	submitInfo.pSignalSemaphores = &m_DrawSemaphores[m_CurrentFrameIndex];
+	VkPipelineStageFlags stages[] = { VkPipelineStageFlagBits::VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
+	submitInfo.pWaitDstStageMask = stages;
+	submitInfo.pWaitSemaphores = &m_PresentSemaphores[m_CurrentFrameIndex];
+	submitInfo.signalSemaphoreCount = 1;
+	submitInfo.sType = VkStructureType::VK_STRUCTURE_TYPE_SUBMIT_INFO;
+	submitInfo.waitSemaphoreCount = 1;
+	vkQueueSubmit(m_GraphicsQueue, 1, &submitInfo, VK_NULL_HANDLE);
+
+	NEW_ST(VkPresentInfoKHR, presentInfo);
+	presentInfo.pImageIndices = &imageIndex;
+	presentInfo.pNext = nullptr;
+	presentInfo.pResults = 0;
+	presentInfo.pSwapchains = &m_SwapChain;
+	presentInfo.pWaitSemaphores = &m_DrawSemaphores[m_CurrentFrameIndex];
+	presentInfo.sType = VkStructureType::VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+	presentInfo.swapchainCount = 1;
+	presentInfo.waitSemaphoreCount = 1;
+	
+	vkQueuePresentKHR(m_PresentQueue, &presentInfo);
+	m_CurrentFrameIndex = (m_CurrentFrameIndex + 1) % m_FrameBuffers.size();
+}
+
+void VulkanCore::AddRenderProxy(const RenderProxy * proxy)
+{
+	bool has = false;
+	for (auto&& i : m_RenderProxys)
+	{
+		if (i == proxy)
+		{
+			has = true;
+			break;
+		}
+	}
+	if (!has)
+	{
+		m_RenderProxys.push_back(const_cast<RenderProxy*>(proxy));
+	}
+}
+
+const std::vector<RenderProxy*> VulkanCore::GetRenderProxys() const
+{
+	return m_RenderProxys;
+}
+
 void VulkanCore::Run()
 {
 	MSG message = {};
@@ -161,9 +234,39 @@ void VulkanCore::Run()
 		}
 		else
 		{
-
+			DrawFrame();
 		}
 	}
+}
+
+const VkDevice & VulkanCore::GetDevice() const
+{
+	// TODO: 在此处插入 return 语句
+	return m_Device;
+}
+
+const VkCommandPool & VulkanCore::GetCommandPool() const
+{
+	// TODO: 在此处插入 return 语句
+	return m_CommandPool;
+}
+
+const VkRenderPass & VulkanCore::GetRenderPass() const
+{
+	// TODO: 在此处插入 return 语句
+	return m_RenderPass;
+}
+
+const VkFramebuffer & VulkanCore::GetCurrentFrameBuffer() const
+{
+	// TODO: 在此处插入 return 语句
+	return VK_NULL_HANDLE;
+}
+
+const VkExtent2D & VulkanCore::GetSwapChainExtent() const
+{
+	// TODO: 在此处插入 return 语句
+	return m_SwapChainExtent2D;
 }
 
 VulkanCore * VulkanCore::GetCore()
@@ -216,6 +319,7 @@ void VulkanCore::InitDevice(uint32_t index)
 				{
 					m_UsedQueueId.insert(queueFimilyId);
 					std::cout << "VK_QUEUE_GRAPHICS_BIT Support At Queue Index " << queueFimilyId << std::endl;
+					m_GraphicsFamily = queueFimilyId;
 					break;
 				}
 			}
@@ -233,6 +337,7 @@ void VulkanCore::InitDevice(uint32_t index)
 				{
 					m_UsedQueueId.insert(index);
 					std::cout << "Surface Support At Queue Index " << index << std::endl;
+					m_PresentFamily = index;
 					break;
 				}
 			}
@@ -277,7 +382,8 @@ void VulkanCore::InitDevice(uint32_t index)
 		auto res = vkCreateDevice(phyDev, &deviceCreateInfo, nullptr, &m_Device);
 		if (res == VkResult::VK_SUCCESS)
 		{
-			vkGetDeviceQueue(m_Device,0,  0, &m_Queue);
+			vkGetDeviceQueue(m_Device,m_GraphicsFamily, 0, &m_GraphicsQueue);
+			vkGetDeviceQueue(m_Device,m_PresentFamily, 0, &m_PresentQueue);
 			std::cout << "Success Create Device" << std::endl;
 		}
 		else
@@ -318,6 +424,17 @@ void VulkanCore::Resize(int w, int h)
 {
 	if (m_UsedPhysicalDevice == 0xffffffff)
 		return;
+	
+	for (auto& imageView : m_SwapChainImageViews)
+	{
+		vkDestroyImageView(m_Device, imageView, nullptr);
+	}
+	m_SwapChainImageViews.clear();
+	for (auto& frameBuffer : m_FrameBuffers)
+	{
+		vkDestroyFramebuffer(m_Device, frameBuffer, nullptr);
+	}
+	m_FrameBuffers.clear();
 	VkSurfaceCapabilitiesKHR extends;
 	vkGetPhysicalDeviceSurfaceCapabilitiesKHR(m_PhysicsDevices[m_UsedPhysicalDevice], m_Surface, &extends);
 
@@ -349,12 +466,102 @@ void VulkanCore::Resize(int w, int h)
 	auto res = vkCreateSwapchainKHR(m_Device, &createInfo, nullptr, &m_SwapChain);
 	if (res == VkResult::VK_SUCCESS)
 	{
-		vkGetDeviceQueue(m_Device, 0, 0, &m_Queue);
+		m_SwapChainImages.clear();
+		uint32_t imagesCount = 0;
+		vkGetSwapchainImagesKHR(m_Device, m_SwapChain, &imagesCount, nullptr);
+		m_SwapChainImages.resize(imagesCount);
+		vkGetSwapchainImagesKHR(m_Device, m_SwapChain, &imagesCount, m_SwapChainImages.data());
+
+		m_SwapChainFormat = VkFormat::VK_FORMAT_B8G8R8A8_UNORM;
+		m_SwapChainExtent2D = extends.currentExtent;
+
+		m_SwapChainImageViews.resize(m_SwapChainImages.size());
+		for (int i = 0; i < m_SwapChainImages.size(); ++i)
+		{
+			NEW_ST(VkImageViewCreateInfo, imageViewCreateInfo);
+			imageViewCreateInfo.components.a = VkComponentSwizzle::VK_COMPONENT_SWIZZLE_A;
+			imageViewCreateInfo.components.b = VkComponentSwizzle::VK_COMPONENT_SWIZZLE_B;
+			imageViewCreateInfo.components.g = VkComponentSwizzle::VK_COMPONENT_SWIZZLE_G;
+			imageViewCreateInfo.components.r = VkComponentSwizzle::VK_COMPONENT_SWIZZLE_R;
+			imageViewCreateInfo.flags = 0;
+			imageViewCreateInfo.format = m_SwapChainFormat;
+			imageViewCreateInfo.image = m_SwapChainImages[i];
+			imageViewCreateInfo.pNext = nullptr;
+			imageViewCreateInfo.sType = VkStructureType::VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+			imageViewCreateInfo.subresourceRange.aspectMask = VkImageAspectFlagBits::VK_IMAGE_ASPECT_COLOR_BIT;
+			imageViewCreateInfo.subresourceRange.baseArrayLayer = 0;
+			imageViewCreateInfo.subresourceRange.baseMipLevel = 0;
+			imageViewCreateInfo.subresourceRange.layerCount = 1;
+			imageViewCreateInfo.subresourceRange.levelCount = 1;
+			imageViewCreateInfo.viewType = VkImageViewType::VK_IMAGE_VIEW_TYPE_2D;
+			
+			auto resV = vkCreateImageView(m_Device, &imageViewCreateInfo, nullptr, &m_SwapChainImageViews[i]);
+			if (resV == VkResult::VK_SUCCESS)
+			{
+				std::cout << "Success Create Image View At " << i << std::endl;
+			}
+		}
+		m_FrameBuffers.resize(m_SwapChainImageViews.size());
+
+		//vkGetDeviceQueue(m_Device, 0, 0, &m_Queue);
 		std::cout << "Success Create SwapChine" << std::endl;
+		VkPipelineVertexInputStateCreateInfo a;
 	}
 	else
 	{
 		std::cout << "Failed Create SwapChine, ErrorCode " << res << std::endl;
 	}
 }
+void VulkanCore::CreateCommandBuffersForSwapChain()
+{
+	NEW_ST(VkCommandPoolCreateInfo, poolCreateInfo);
+	poolCreateInfo.flags = VkCommandPoolCreateFlagBits::VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+	poolCreateInfo.pNext = nullptr;
+	poolCreateInfo.queueFamilyIndex = m_GraphicsFamily;
+	poolCreateInfo.sType = VkStructureType::VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+	vkCreateCommandPool(m_Device, &poolCreateInfo, nullptr, &m_CommandPool);
+	
+	
+}
+
+void VulkanCore::InitSyncSemaphore()
+{
+	m_DrawSemaphores.clear();
+	m_DrawSemaphores.resize(m_SwapChainImageViews.size());
+	for (int i = 0; i < m_DrawSemaphores.size(); ++i)
+	{
+		NEW_ST(VkSemaphoreCreateInfo, semaCreateInfo);
+		semaCreateInfo.pNext = nullptr;
+		semaCreateInfo.flags = 0;
+		semaCreateInfo.pNext = nullptr;
+		semaCreateInfo.sType = VkStructureType::VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+		vkCreateSemaphore(m_Device, &semaCreateInfo,nullptr, &m_DrawSemaphores[i]);
+	}
+	m_PresentSemaphores.clear();
+	m_PresentSemaphores.resize(m_SwapChainImageViews.size());
+	for (int i = 0; i < m_PresentSemaphores.size(); ++i)
+	{
+		NEW_ST(VkSemaphoreCreateInfo, semaCreateInfo);
+		semaCreateInfo.pNext = nullptr;
+		semaCreateInfo.flags = 0;
+		semaCreateInfo.pNext = nullptr;
+		semaCreateInfo.sType = VkStructureType::VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+		vkCreateSemaphore(m_Device, &semaCreateInfo, nullptr, &m_PresentSemaphores[i]);
+	}
+}
+
+void VulkanCore::InitSyncFence()
+{
+	m_Fences.clear();
+	m_Fences.resize(m_SwapChainImageViews.size());
+	for (int i = 0; i < m_Fences.size(); ++i)
+	{
+		NEW_ST(VkFenceCreateInfo, fenceCreateInfo);
+		fenceCreateInfo.flags = VkFenceCreateFlagBits::VK_FENCE_CREATE_SIGNALED_BIT;
+		fenceCreateInfo.pNext = nullptr;
+		fenceCreateInfo.sType = VkStructureType::VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+		vkCreateFence(m_Device, &fenceCreateInfo, nullptr, &m_Fences[i]);
+	}
+}
+
 #pragma endregion

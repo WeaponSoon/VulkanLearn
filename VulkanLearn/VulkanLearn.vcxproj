@@ -155,6 +155,7 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClInclude Include="pch.h" />
+    <ClInclude Include="RenderProxy.h" />
     <ClInclude Include="VkStringEnum.h" />
     <ClInclude Include="VulkanCore.h" />
     <ClInclude Include="WindowsWnd.h" />
@@ -166,6 +167,7 @@
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">Create</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Create</PrecompiledHeader>
     </ClCompile>
+    <ClCompile Include="RenderProxy.cpp" />
     <ClCompile Include="VkStringEnum.cpp" />
     <ClCompile Include="VulkanCore.cpp" />
     <ClCompile Include="VulkanLearn.cpp" />

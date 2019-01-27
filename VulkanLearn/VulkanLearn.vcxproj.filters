@@ -27,6 +27,9 @@
     <ClInclude Include="WindowsWnd.h">
       <Filter>头文件</Filter>
     </ClInclude>
+    <ClInclude Include="RenderProxy.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="pch.cpp">
@@ -42,6 +45,9 @@
       <Filter>源文件</Filter>
     </ClCompile>
     <ClCompile Include="WindowsWnd.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="RenderProxy.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
   </ItemGroup>
