@@ -2,7 +2,7 @@
 #include "VulkanCore.h"
 #include <iostream>
 #include "VkStringEnum.h"
-
+#include "RenderProxy.h"
 VulkanCore* VulkanCore::core = nullptr;
 std::mutex VulkanCore::lock;
 VulkanCore::VulkanCore() : m_PhysicsDevicesIninted(false), m_Instance(VK_NULL_HANDLE), m_Device(VK_NULL_HANDLE), m_UsedQueueId(),m_Surface(VK_NULL_HANDLE),
@@ -10,8 +10,7 @@ VulkanCore::VulkanCore() : m_PhysicsDevicesIninted(false), m_Instance(VK_NULL_HA
 {
 	InitDevice(0);
 	CreateCommandBuffersForSwapChain();
-	InitSyncSemaphore();
-	InitSyncFence();
+
 }
 
 void VulkanCore::InitInstance()
@@ -506,6 +505,8 @@ void VulkanCore::Resize(int w, int h)
 		//vkGetDeviceQueue(m_Device, 0, 0, &m_Queue);
 		std::cout << "Success Create SwapChine" << std::endl;
 		VkPipelineVertexInputStateCreateInfo a;
+		InitSyncSemaphore();
+		InitSyncFence();
 	}
 	else
 	{

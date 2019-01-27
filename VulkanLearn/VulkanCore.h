@@ -6,12 +6,12 @@
 #include <mutex>
 #include <string>
 #include <tchar.h>
-#include "RenderProxy.h"
 #include "WindowsWnd.h"
 #define NEW_ST(st, ins)\
 	st ins;\
 	ZeroMemory(&ins, sizeof(st));
 #define CORE VulkanCore::GetCore()
+class RenderProxy;
 class VulkanCore
 {
 private:
