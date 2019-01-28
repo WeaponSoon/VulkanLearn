@@ -691,8 +691,15 @@ void VulkanCore::InitGeometryPass()
 	subpassDesc.pInputAttachments = nullptr;
 	subpassDesc.pipelineBindPoint = VkPipelineBindPoint::VK_PIPELINE_BIND_POINT_GRAPHICS;
 	
+	std::array<VkAttachmentDescription, 2> attachments = {
+		attachmentDesc,
+		attachmentDepthDesc
+	};
 	NEW_ST(VkRenderPassCreateInfo, passCreateInfo);
-	passCreateInfo.attachmentCount;
+	passCreateInfo.attachmentCount = attachments.size();
+	passCreateInfo.dependencyCount = 0;
+	passCreateInfo.flags = 0;
+
 }
 
 void VulkanCore::InitTransparentPass()
