@@ -26,13 +26,15 @@ private:
 	VkSwapchainKHR m_SwapChain;
 	uint32_t m_UsedPhysicalDevice;
 	std::vector<VkImage> m_SwapChainImages;
+	std::vector<VkImage> m_SwapChainDepthStencil;
 	VkExtent2D m_SwapChainExtent2D;
 	VkFormat m_SwapChainFormat;
 	std::vector<VkImageView> m_SwapChainImageViews;
+	std::vector<VkImageView> m_SwapChainDepthStencilView;
 	VkCommandPool m_CommandPool;
 	uint32_t m_GraphicsFamily;
 	uint32_t m_PresentFamily;
-	VkRenderPass m_RenderPass;
+	//VkRenderPass m_RenderPass;
 	std::vector<VkFramebuffer> m_FrameBuffers;
 	std::vector<RenderProxy*> m_RenderProxys;
 	std::vector<VkCommandBuffer> m_TempProxyCommandBuffer;
@@ -40,6 +42,12 @@ private:
 	std::vector<VkSemaphore> m_PresentSemaphores;
 	std::vector<VkFence> m_Fences;
 	uint32_t m_CurrentFrameIndex;
+
+	std::vector<VkRenderPass> m_RenderPass;
+
+	static uint32_t ShadowPassIndex;
+	static uint32_t ScenePassIndex;
+	static uint32_t MaxRenderMaxIndex;
 
 #pragma region Platformœ‡πÿ
 	HWND m_hWnd;
@@ -84,6 +92,9 @@ private:
 	void CreateCommandBuffersForSwapChain();
 	void InitSyncSemaphore();
 	void InitSyncFence();
+	void InitShadowPass();
+	void InitGeometryPass();
+	void InitTransparentPass();
 
 
 	VulkanCore();

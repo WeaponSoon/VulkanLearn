@@ -1,16 +1,21 @@
 #include "pch.h"
 #include "VulkanCore.h"
 #include <iostream>
+#include <array>
 #include "VkStringEnum.h"
 #include "RenderProxy.h"
 VulkanCore* VulkanCore::core = nullptr;
 std::mutex VulkanCore::lock;
+uint32_t VulkanCore::ShadowPassIndex = 0;
+uint32_t VulkanCore::ScenePassIndex = 1;
+uint32_t VulkanCore::MaxRenderMaxIndex = 2;
+
 VulkanCore::VulkanCore() : m_PhysicsDevicesIninted(false), m_Instance(VK_NULL_HANDLE), m_Device(VK_NULL_HANDLE), m_UsedQueueId(),m_Surface(VK_NULL_HANDLE),
 	m_hWnd(0), m_hInstance(0), m_SwapChain(VK_NULL_HANDLE), m_UsedPhysicalDevice(0xffffffff)
 {
 	InitDevice(0);
 	CreateCommandBuffersForSwapChain();
-
+	m_RenderPass.resize(MaxRenderMaxIndex);
 }
 
 void VulkanCore::InitInstance()
@@ -253,7 +258,7 @@ const VkCommandPool & VulkanCore::GetCommandPool() const
 const VkRenderPass & VulkanCore::GetRenderPass() const
 {
 	// TODO: 在此处插入 return 语句
-	return m_RenderPass;
+	return VK_NULL_HANDLE;
 }
 
 const VkFramebuffer & VulkanCore::GetCurrentFrameBuffer() const
@@ -434,6 +439,16 @@ void VulkanCore::Resize(int w, int h)
 		vkDestroyFramebuffer(m_Device, frameBuffer, nullptr);
 	}
 	m_FrameBuffers.clear();
+	for (auto& depthStencil : m_SwapChainDepthStencil)
+	{
+		vkDestroyImage(m_Device, depthStencil, nullptr);
+	}
+	m_SwapChainDepthStencil.clear();
+	for (auto& depthStencilView : m_SwapChainDepthStencilView)
+	{
+		vkDestroyImageView(m_Device, depthStencilView, nullptr);
+	}
+	m_SwapChainDepthStencilView.clear();
 	VkSurfaceCapabilitiesKHR extends;
 	vkGetPhysicalDeviceSurfaceCapabilitiesKHR(m_PhysicsDevices[m_UsedPhysicalDevice], m_Surface, &extends);
 
@@ -475,6 +490,8 @@ void VulkanCore::Resize(int w, int h)
 		m_SwapChainExtent2D = extends.currentExtent;
 
 		m_SwapChainImageViews.resize(m_SwapChainImages.size());
+		m_SwapChainDepthStencilView.resize(m_SwapChainImages.size());
+		m_SwapChainDepthStencil.resize(m_SwapChainImages.size());
 		for (int i = 0; i < m_SwapChainImages.size(); ++i)
 		{
 			NEW_ST(VkImageViewCreateInfo, imageViewCreateInfo);
@@ -497,10 +514,68 @@ void VulkanCore::Resize(int w, int h)
 			auto resV = vkCreateImageView(m_Device, &imageViewCreateInfo, nullptr, &m_SwapChainImageViews[i]);
 			if (resV == VkResult::VK_SUCCESS)
 			{
+				NEW_ST(VkImageCreateInfo, imageInfo);
+				imageInfo.arrayLayers = 1;
+				imageInfo.extent.height = extends.currentExtent.height;
+				imageInfo.extent.width = extends.currentExtent.width;
+				imageInfo.extent.depth = 1;
+				imageInfo.flags = 0;
+				imageInfo.format = VkFormat::VK_FORMAT_D24_UNORM_S8_UINT;
+				imageInfo.imageType = VkImageType::VK_IMAGE_TYPE_2D;
+				imageInfo.initialLayout = VkImageLayout::VK_IMAGE_LAYOUT_UNDEFINED;
+				imageInfo.mipLevels = 1;
+				imageInfo.pNext = nullptr;
+				imageInfo.pQueueFamilyIndices = &m_GraphicsFamily;
+				imageInfo.queueFamilyIndexCount = 1;
+				imageInfo.samples = VkSampleCountFlagBits::VK_SAMPLE_COUNT_1_BIT;
+				imageInfo.sharingMode = VkSharingMode::VK_SHARING_MODE_EXCLUSIVE;
+				imageInfo.sType = VkStructureType::VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+				imageInfo.tiling = VkImageTiling::VK_IMAGE_TILING_OPTIMAL;
+				imageInfo.usage = VkImageUsageFlagBits::VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+				
+				vkCreateImage(m_Device, &imageInfo,nullptr, &m_SwapChainDepthStencil[i]);
+
+				NEW_ST(VkImageViewCreateInfo, imageViewInfo);
+				imageViewInfo.components.a = VkComponentSwizzle::VK_COMPONENT_SWIZZLE_A;
+				imageViewInfo.components.b = VkComponentSwizzle::VK_COMPONENT_SWIZZLE_B;
+				imageViewInfo.components.g = VkComponentSwizzle::VK_COMPONENT_SWIZZLE_G;
+				imageViewInfo.components.r = VkComponentSwizzle::VK_COMPONENT_SWIZZLE_R;
+				imageViewInfo.flags = 0;
+				imageViewInfo.format = VkFormat::VK_FORMAT_D24_UNORM_S8_UINT;;
+				imageViewInfo.image = m_SwapChainDepthStencil[i];
+				imageViewInfo.pNext = nullptr;
+				imageViewInfo.sType = VkStructureType::VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+				imageViewInfo.subresourceRange.aspectMask = VkImageAspectFlagBits::VK_IMAGE_ASPECT_DEPTH_BIT | VkImageAspectFlagBits::VK_IMAGE_ASPECT_STENCIL_BIT;
+				imageViewInfo.subresourceRange.baseArrayLayer = 0;
+				imageViewInfo.subresourceRange.baseMipLevel = 0;
+				imageViewInfo.subresourceRange.layerCount = 1;
+				imageViewInfo.subresourceRange.levelCount = 1;
+				imageViewInfo.viewType = VkImageViewType::VK_IMAGE_VIEW_TYPE_2D;
+
+				vkCreateImageView(m_Device, &imageViewInfo, nullptr, &m_SwapChainDepthStencilView[i]);
+
 				std::cout << "Success Create Image View At " << i << std::endl;
 			}
+
 		}
 		m_FrameBuffers.resize(m_SwapChainImageViews.size());
+		for (int i = 0; i < m_FrameBuffers.size(); ++i)
+		{
+			std::array<VkImageView, 2> views = {
+				m_SwapChainImageViews[i],
+				m_SwapChainDepthStencilView[i]
+			};
+			NEW_ST(VkFramebufferCreateInfo, frameBufferInfo);
+			frameBufferInfo.attachmentCount = views.size();
+			frameBufferInfo.flags = 0;
+			frameBufferInfo.height = extends.currentExtent.height;
+			frameBufferInfo.layers = 1;
+			frameBufferInfo.pAttachments = views.data();
+			frameBufferInfo.pNext = nullptr;
+			frameBufferInfo.sType = VkStructureType::VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+			frameBufferInfo.width = extends.currentExtent.width;
+			
+		}
 
 		//vkGetDeviceQueue(m_Device, 0, 0, &m_Queue);
 		std::cout << "Success Create SwapChine" << std::endl;
@@ -563,6 +638,65 @@ void VulkanCore::InitSyncFence()
 		fenceCreateInfo.sType = VkStructureType::VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
 		vkCreateFence(m_Device, &fenceCreateInfo, nullptr, &m_Fences[i]);
 	}
+}
+
+void VulkanCore::InitShadowPass()
+{
+	if (m_RenderPass[ShadowPassIndex] != VK_NULL_HANDLE)
+	{
+		return;
+	}
+	NEW_ST(VkAttachmentDescription, attachmentDesc);
+	attachmentDesc.finalLayout = VkImageLayout::VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+}
+
+void VulkanCore::InitGeometryPass()
+{
+	NEW_ST(VkAttachmentDescription, attachmentDesc);
+	attachmentDesc.finalLayout = VkImageLayout::VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+	attachmentDesc.flags = 0;
+	attachmentDesc.format = m_SwapChainFormat;
+	attachmentDesc.initialLayout = VkImageLayout::VK_IMAGE_LAYOUT_UNDEFINED;
+	attachmentDesc.loadOp = VkAttachmentLoadOp::VK_ATTACHMENT_LOAD_OP_CLEAR;
+	attachmentDesc.samples = VkSampleCountFlagBits::VK_SAMPLE_COUNT_1_BIT;
+	attachmentDesc.stencilLoadOp = VkAttachmentLoadOp::VK_ATTACHMENT_LOAD_OP_CLEAR;
+	attachmentDesc.stencilStoreOp = VkAttachmentStoreOp::VK_ATTACHMENT_STORE_OP_STORE;
+	attachmentDesc.storeOp = VkAttachmentStoreOp::VK_ATTACHMENT_STORE_OP_STORE;
+
+	NEW_ST(VkAttachmentDescription, attachmentDepthDesc);
+	attachmentDesc.finalLayout = VkImageLayout::VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+	attachmentDesc.flags = 0;
+	attachmentDesc.format = VkFormat::VK_FORMAT_D24_UNORM_S8_UINT;
+	attachmentDesc.initialLayout = VkImageLayout::VK_IMAGE_LAYOUT_UNDEFINED;
+	attachmentDesc.loadOp = VkAttachmentLoadOp::VK_ATTACHMENT_LOAD_OP_CLEAR;
+	attachmentDesc.samples = VkSampleCountFlagBits::VK_SAMPLE_COUNT_1_BIT;
+	attachmentDesc.stencilLoadOp = VkAttachmentLoadOp::VK_ATTACHMENT_LOAD_OP_CLEAR;
+	attachmentDesc.stencilStoreOp = VkAttachmentStoreOp::VK_ATTACHMENT_STORE_OP_DONT_CARE;
+	attachmentDesc.storeOp = VkAttachmentStoreOp::VK_ATTACHMENT_STORE_OP_DONT_CARE;
+	
+	NEW_ST(VkAttachmentReference, reference);
+	reference.attachment = 0;
+	reference.layout = VkImageLayout::VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+	NEW_ST(VkAttachmentReference, depthReference);
+	depthReference.attachment = 1;
+	depthReference.layout = VkImageLayout::VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+	NEW_ST(VkSubpassDescription, subpassDesc);
+	subpassDesc.colorAttachmentCount = 1;
+	subpassDesc.flags = 0;
+	subpassDesc.inputAttachmentCount = 0;
+	subpassDesc.pColorAttachments = &reference;
+	subpassDesc.pDepthStencilAttachment = &depthReference;
+	subpassDesc.pInputAttachments = nullptr;
+	subpassDesc.pipelineBindPoint = VkPipelineBindPoint::VK_PIPELINE_BIND_POINT_GRAPHICS;
+	
+	NEW_ST(VkRenderPassCreateInfo, passCreateInfo);
+	passCreateInfo.attachmentCount;
+}
+
+void VulkanCore::InitTransparentPass()
+{
 }
 
 #pragma endregion
