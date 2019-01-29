@@ -7,8 +7,9 @@
 VulkanCore* VulkanCore::core = nullptr;
 std::mutex VulkanCore::lock;
 uint32_t VulkanCore::ShadowPassIndex = 0;
-uint32_t VulkanCore::ScenePassIndex = 1;
-uint32_t VulkanCore::MaxRenderMaxIndex = 2;
+uint32_t VulkanCore::GeometryPassIndex = 1;
+uint32_t VulkanCore::TransparentPassIndex = 2;
+uint32_t VulkanCore::MaxRenderMaxIndex = 3;
 
 VulkanCore::VulkanCore() : m_PhysicsDevicesIninted(false), m_Instance(VK_NULL_HANDLE), m_Device(VK_NULL_HANDLE), m_UsedQueueId(),m_Surface(VK_NULL_HANDLE),
 	m_hWnd(0), m_hInstance(0), m_SwapChain(VK_NULL_HANDLE), m_UsedPhysicalDevice(0xffffffff)
@@ -16,6 +17,8 @@ VulkanCore::VulkanCore() : m_PhysicsDevicesIninted(false), m_Instance(VK_NULL_HA
 	InitDevice(0);
 	CreateCommandBuffersForSwapChain();
 	m_RenderPass.resize(MaxRenderMaxIndex);
+	InitGeometryPass();
+	InitTransparentPass();
 }
 
 void VulkanCore::InitInstance()
@@ -533,7 +536,14 @@ void VulkanCore::Resize(int w, int h)
 				imageInfo.tiling = VkImageTiling::VK_IMAGE_TILING_OPTIMAL;
 				imageInfo.usage = VkImageUsageFlagBits::VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
 				
-				vkCreateImage(m_Device, &imageInfo,nullptr, &m_SwapChainDepthStencil[i]);
+				auto resI = vkCreateImage(m_Device, &imageInfo,nullptr, &m_SwapChainDepthStencil[i]);
+				if (resI == VkResult::VK_SUCCESS)
+					std::cout << "Success Create Image At " << i << std::endl;
+				else
+				{
+					std::cout << "Failed Create Image At " << i << std::endl;
+				}
+
 
 				NEW_ST(VkImageViewCreateInfo, imageViewInfo);
 				imageViewInfo.components.a = VkComponentSwizzle::VK_COMPONENT_SWIZZLE_A;
@@ -541,20 +551,24 @@ void VulkanCore::Resize(int w, int h)
 				imageViewInfo.components.g = VkComponentSwizzle::VK_COMPONENT_SWIZZLE_G;
 				imageViewInfo.components.r = VkComponentSwizzle::VK_COMPONENT_SWIZZLE_R;
 				imageViewInfo.flags = 0;
-				imageViewInfo.format = VkFormat::VK_FORMAT_D24_UNORM_S8_UINT;;
+				imageViewInfo.format = VkFormat::VK_FORMAT_D24_UNORM_S8_UINT;
 				imageViewInfo.image = m_SwapChainDepthStencil[i];
 				imageViewInfo.pNext = nullptr;
 				imageViewInfo.sType = VkStructureType::VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-				imageViewInfo.subresourceRange.aspectMask = VkImageAspectFlagBits::VK_IMAGE_ASPECT_DEPTH_BIT | VkImageAspectFlagBits::VK_IMAGE_ASPECT_STENCIL_BIT;
+				imageViewInfo.subresourceRange.aspectMask = VkImageAspectFlagBits::VK_IMAGE_ASPECT_DEPTH_BIT;// | VkImageAspectFlagBits::VK_IMAGE_ASPECT_STENCIL_BIT;
 				imageViewInfo.subresourceRange.baseArrayLayer = 0;
 				imageViewInfo.subresourceRange.baseMipLevel = 0;
 				imageViewInfo.subresourceRange.layerCount = 1;
 				imageViewInfo.subresourceRange.levelCount = 1;
 				imageViewInfo.viewType = VkImageViewType::VK_IMAGE_VIEW_TYPE_2D;
 
-				vkCreateImageView(m_Device, &imageViewInfo, nullptr, &m_SwapChainDepthStencilView[i]);
-
-				std::cout << "Success Create Image View At " << i << std::endl;
+				auto resV = vkCreateImageView(m_Device, &imageViewInfo, nullptr, &m_SwapChainDepthStencilView[i]);
+				if(resV == VkResult::VK_SUCCESS)
+					std::cout << "Success Create Image View At " << i << std::endl;
+				else
+				{
+					std::cout << "Failed Create Image View At " << i << std::endl;
+				}
 			}
 
 		}
@@ -574,7 +588,7 @@ void VulkanCore::Resize(int w, int h)
 			frameBufferInfo.pNext = nullptr;
 			frameBufferInfo.sType = VkStructureType::VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
 			frameBufferInfo.width = extends.currentExtent.width;
-			
+			frameBufferInfo.renderPass = m_RenderPass[GeometryPassIndex];
 		}
 
 		//vkGetDeviceQueue(m_Device, 0, 0, &m_Queue);
@@ -653,7 +667,7 @@ void VulkanCore::InitShadowPass()
 void VulkanCore::InitGeometryPass()
 {
 	NEW_ST(VkAttachmentDescription, attachmentDesc);
-	attachmentDesc.finalLayout = VkImageLayout::VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+	attachmentDesc.finalLayout = VkImageLayout::VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 	attachmentDesc.flags = 0;
 	attachmentDesc.format = m_SwapChainFormat;
 	attachmentDesc.initialLayout = VkImageLayout::VK_IMAGE_LAYOUT_UNDEFINED;
@@ -671,8 +685,8 @@ void VulkanCore::InitGeometryPass()
 	attachmentDesc.loadOp = VkAttachmentLoadOp::VK_ATTACHMENT_LOAD_OP_CLEAR;
 	attachmentDesc.samples = VkSampleCountFlagBits::VK_SAMPLE_COUNT_1_BIT;
 	attachmentDesc.stencilLoadOp = VkAttachmentLoadOp::VK_ATTACHMENT_LOAD_OP_CLEAR;
-	attachmentDesc.stencilStoreOp = VkAttachmentStoreOp::VK_ATTACHMENT_STORE_OP_DONT_CARE;
-	attachmentDesc.storeOp = VkAttachmentStoreOp::VK_ATTACHMENT_STORE_OP_DONT_CARE;
+	attachmentDesc.stencilStoreOp = VkAttachmentStoreOp::VK_ATTACHMENT_STORE_OP_STORE;
+	attachmentDesc.storeOp = VkAttachmentStoreOp::VK_ATTACHMENT_STORE_OP_STORE;
 	
 	NEW_ST(VkAttachmentReference, reference);
 	reference.attachment = 0;
@@ -699,11 +713,87 @@ void VulkanCore::InitGeometryPass()
 	passCreateInfo.attachmentCount = attachments.size();
 	passCreateInfo.dependencyCount = 0;
 	passCreateInfo.flags = 0;
-
+	passCreateInfo.pAttachments = attachments.data();
+	passCreateInfo.pDependencies = nullptr;
+	passCreateInfo.pNext = nullptr;
+	passCreateInfo.pSubpasses = &subpassDesc;
+	passCreateInfo.sType = VkStructureType::VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+	passCreateInfo.subpassCount = 1;
+	auto res = vkCreateRenderPass(m_Device, &passCreateInfo, nullptr, &m_RenderPass[GeometryPassIndex]);
+	if (res == VkResult::VK_SUCCESS)
+	{
+		std::cout << "Create Geometry Pass Success" << std::endl;
+	}
+	else
+	{
+		std::cout << "Create Geometry Pass Failed" << std::endl;
+	}
 }
 
 void VulkanCore::InitTransparentPass()
 {
+	NEW_ST(VkAttachmentDescription, attachmentDesc);
+	attachmentDesc.finalLayout = VkImageLayout::VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+	attachmentDesc.flags = 0;
+	attachmentDesc.format = m_SwapChainFormat;
+	attachmentDesc.initialLayout = VkImageLayout::VK_IMAGE_LAYOUT_UNDEFINED;
+	attachmentDesc.loadOp = VkAttachmentLoadOp::VK_ATTACHMENT_LOAD_OP_LOAD;
+	attachmentDesc.samples = VkSampleCountFlagBits::VK_SAMPLE_COUNT_1_BIT;
+	attachmentDesc.stencilLoadOp = VkAttachmentLoadOp::VK_ATTACHMENT_LOAD_OP_LOAD;
+	attachmentDesc.stencilStoreOp = VkAttachmentStoreOp::VK_ATTACHMENT_STORE_OP_STORE;
+	attachmentDesc.storeOp = VkAttachmentStoreOp::VK_ATTACHMENT_STORE_OP_STORE;
+
+	NEW_ST(VkAttachmentDescription, attachmentDepthDesc);
+	attachmentDesc.finalLayout = VkImageLayout::VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+	attachmentDesc.flags = 0;
+	attachmentDesc.format = VkFormat::VK_FORMAT_D24_UNORM_S8_UINT;
+	attachmentDesc.initialLayout = VkImageLayout::VK_IMAGE_LAYOUT_UNDEFINED;
+	attachmentDesc.loadOp = VkAttachmentLoadOp::VK_ATTACHMENT_LOAD_OP_LOAD;
+	attachmentDesc.samples = VkSampleCountFlagBits::VK_SAMPLE_COUNT_1_BIT;
+	attachmentDesc.stencilLoadOp = VkAttachmentLoadOp::VK_ATTACHMENT_LOAD_OP_LOAD;
+	attachmentDesc.stencilStoreOp = VkAttachmentStoreOp::VK_ATTACHMENT_STORE_OP_DONT_CARE;
+	attachmentDesc.storeOp = VkAttachmentStoreOp::VK_ATTACHMENT_STORE_OP_DONT_CARE;
+
+	NEW_ST(VkAttachmentReference, reference);
+	reference.attachment = 0;
+	reference.layout = VkImageLayout::VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+	NEW_ST(VkAttachmentReference, depthReference);
+	depthReference.attachment = 1;
+	depthReference.layout = VkImageLayout::VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+	NEW_ST(VkSubpassDescription, subpassDesc);
+	subpassDesc.colorAttachmentCount = 1;
+	subpassDesc.flags = 0;
+	subpassDesc.inputAttachmentCount = 0;
+	subpassDesc.pColorAttachments = &reference;
+	subpassDesc.pDepthStencilAttachment = &depthReference;
+	subpassDesc.pInputAttachments = nullptr;
+	subpassDesc.pipelineBindPoint = VkPipelineBindPoint::VK_PIPELINE_BIND_POINT_GRAPHICS;
+
+	std::array<VkAttachmentDescription, 2> attachments = {
+		attachmentDesc,
+		attachmentDepthDesc
+	};
+	NEW_ST(VkRenderPassCreateInfo, passCreateInfo);
+	passCreateInfo.attachmentCount = attachments.size();
+	passCreateInfo.dependencyCount = 0;
+	passCreateInfo.flags = 0;
+	passCreateInfo.pAttachments = attachments.data();
+	passCreateInfo.pDependencies = nullptr;
+	passCreateInfo.pNext = nullptr;
+	passCreateInfo.pSubpasses = &subpassDesc;
+	passCreateInfo.sType = VkStructureType::VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+	passCreateInfo.subpassCount = 1;
+	auto res = vkCreateRenderPass(m_Device, &passCreateInfo, nullptr, &m_RenderPass[GeometryPassIndex]);
+	if (res == VkResult::VK_SUCCESS)
+	{
+		std::cout << "Create Transparent Pass Success" << std::endl;
+	}
+	else
+	{
+		std::cout << "Create Transparent Pass Failed" << std::endl;
+	}
 }
 
 #pragma endregion

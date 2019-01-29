@@ -46,7 +46,8 @@ private:
 	std::vector<VkRenderPass> m_RenderPass;
 
 	static uint32_t ShadowPassIndex;
-	static uint32_t ScenePassIndex;
+	static uint32_t GeometryPassIndex;
+	static uint32_t TransparentPassIndex;
 	static uint32_t MaxRenderMaxIndex;
 
 #pragma region Platformœ‡πÿ
