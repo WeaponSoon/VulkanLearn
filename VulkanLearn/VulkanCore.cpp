@@ -562,7 +562,7 @@ void VulkanCore::Resize(int w, int h)
 				imageViewInfo.subresourceRange.levelCount = 1;
 				imageViewInfo.viewType = VkImageViewType::VK_IMAGE_VIEW_TYPE_2D;
 
-				auto resV = vkCreateImageView(m_Device, &imageViewInfo, nullptr, &m_SwapChainDepthStencilView[i]);
+				//auto resV = vkCreateImageView(m_Device, &imageViewInfo, nullptr, &m_SwapChainDepthStencilView[i]);
 				if(resV == VkResult::VK_SUCCESS)
 					std::cout << "Success Create Image View At " << i << std::endl;
 				else
